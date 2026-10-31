@@ -8,6 +8,15 @@ use std::time::{Duration, Instant};
 use discord_rich_presence::{DiscordIpc, DiscordIpcClient, activity};
 use tauri_plugin_fs::FsExt;
 
+/// The webview runtime. Qt/QtWebEngine (Chromium) on Linux when built with
+/// `--features qt --no-default-features`, otherwise Tauri's stock wry runtime
+/// (WebKitGTK on Linux, WebView2 on Windows, WKWebView on macOS). The frontend
+/// is engine-agnostic; only this type and the invoke system differ.
+#[cfg(all(target_os = "linux", feature = "qt", not(feature = "wry")))]
+pub type AppRuntime = tauri_runtime_qt::QtRuntime;
+#[cfg(any(not(target_os = "linux"), feature = "wry", not(feature = "qt")))]
+pub type AppRuntime = tauri::Wry;
+
 const DISCORD_CLIENT_ID: &str = "1250551199862624349";
 const DISCORD_LOGO_URL: &str = "https://tool.spicylyrics.org/logo.png";
 const DISCORD_PLAY_URL: &str = "https://cdn.rcd.gg/PreMiD/resources/play.png";
@@ -263,7 +272,7 @@ fn get_open_file_data() -> Option<OpenFileData> {
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn open_linked_projects_folder(app: tauri::AppHandle) -> Result<(), String> {
+fn open_linked_projects_folder(app: tauri::AppHandle<AppRuntime>) -> Result<(), String> {
     use tauri::Manager;
 
     let dir = app
@@ -301,7 +310,7 @@ fn without_verbatim_prefix(path: &std::path::Path) -> std::path::PathBuf {
 /// `folder-project/types.ts`) in Explorer when it exists.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn open_linked_project_dir(app: tauri::AppHandle, dir: String) -> Result<(), String> {
+fn open_linked_project_dir(app: tauri::AppHandle<AppRuntime>, dir: String) -> Result<(), String> {
     use std::path::PathBuf;
     use tauri::Manager;
 
@@ -370,7 +379,7 @@ fn open_linked_project_dir(app: tauri::AppHandle, dir: String) -> Result<(), Str
 #[allow(clippy::needless_pass_by_value)]
 fn allow_dropped_file(
     path: String,
-    window: tauri::Window,
+    window: tauri::Window<AppRuntime>,
     dropped: tauri::State<'_, DroppedPaths>,
 ) -> Result<bool, String> {
     let known = dropped
@@ -397,7 +406,7 @@ fn allow_dropped_file(
 /// paths. Paths are only remembered here (and reported to the page); the fs
 /// scope is granted later by `allow_dropped_file`, when a file is really linked.
 #[cfg(windows)]
-fn watch_dropped_file_paths(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+fn watch_dropped_file_paths(window: &tauri::WebviewWindow<AppRuntime>) -> tauri::Result<()> {
     use tauri::{Emitter, Manager};
     use webview2_com::{
         Microsoft::Web::WebView2::Win32::{
@@ -476,7 +485,7 @@ fn watch_dropped_file_paths(window: &tauri::WebviewWindow) -> tauri::Result<()> 
 #[tauri::command]
 async fn pick_project_folder(
     title: String,
-    window: tauri::Window,
+    window: tauri::Window<AppRuntime>,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
@@ -509,7 +518,7 @@ async fn pick_project_folder(
 /// to avoid a white flash. If the frontend fails before that (a startup error,
 /// or an API the system WebView lacks), the app would run with no window at all.
 /// Show it anyway after a few seconds so there's something to see and report.
-fn show_main_window_if_frontend_stalls(app: &tauri::App) {
+fn show_main_window_if_frontend_stalls(app: &tauri::App<AppRuntime>) {
     use tauri::Manager;
 
     let Some(window) = app.get_webview_window("main") else {
@@ -527,14 +536,27 @@ fn show_main_window_if_frontend_stalls(app: &tauri::App) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[allow(clippy::missing_panics_doc)]
 pub fn run() {
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::<AppRuntime>::new()
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_decorum::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_process::init());
+
+    // Decorations are a native-titlebar feature that drives webkit2gtk/webview2
+    // directly, so it only exists on the wry runtime.
+    #[cfg(feature = "wry")]
+    {
+        builder = builder.plugin(tauri_plugin_decorum::init());
+    }
+
+    // QtWebEngine never exposes custom-protocol request bodies, so the Qt
+    // runtime carries invoke payloads in a request header instead.
+    #[cfg(all(target_os = "linux", feature = "qt", not(feature = "wry")))]
+    {
+        builder = builder.invoke_system(tauri_runtime_qt::INVOKE_SYSTEM_SCRIPT);
+    }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     if can_self_update() {

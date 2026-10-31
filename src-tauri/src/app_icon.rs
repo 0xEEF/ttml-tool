@@ -12,6 +12,8 @@ use std::sync::Mutex;
 use resvg::{tiny_skia, usvg};
 use tauri::{AppHandle, Manager};
 
+use crate::AppRuntime;
+
 const LOGO_SVG: &str = include_str!("../../public/logo.svg");
 const TILE_TOP: &str = "#4E347E";
 const TILE_BOTTOM: &str = "#3F2669";
@@ -130,7 +132,7 @@ fn window_icon(svg: &str) -> Result<tauri::image::Image<'static>, String> {
     Ok(tauri::image::Image::new_owned(rgba, 256, 256))
 }
 
-fn icons_dir(app: &AppHandle) -> Result<PathBuf, String> {
+fn icons_dir(app: &AppHandle<AppRuntime>) -> Result<PathBuf, String> {
     Ok(app
         .path()
         .app_local_data_dir()
@@ -158,7 +160,7 @@ fn remove_stale_icons(dir: &Path, keep: Option<&Path>) {
     }
 }
 
-fn apply(app: &AppHandle, color: Option<[u8; 3]>) -> Result<(), String> {
+fn apply(app: &AppHandle<AppRuntime>, color: Option<[u8; 3]>) -> Result<(), String> {
     let _guard = APPLY_LOCK.lock().map_err(|e| e.to_string())?;
     let dir = icons_dir(app)?;
     let window = app.get_webview_window("main");
@@ -202,7 +204,7 @@ fn apply(app: &AppHandle, color: Option<[u8; 3]>) -> Result<(), String> {
 
 /// `color` is `#rrggbb`, or `None` for the default icon.
 #[tauri::command]
-pub fn apply_app_icon(app: AppHandle, color: Option<String>) -> Result<(), String> {
+pub fn apply_app_icon(app: AppHandle<AppRuntime>, color: Option<String>) -> Result<(), String> {
     let color = match color {
         Some(value) => Some(parse_hex(&value).ok_or("Expected a #rrggbb color")?),
         None => None,
