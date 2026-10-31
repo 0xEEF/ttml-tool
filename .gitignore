@@ -48,3 +48,6 @@ ffmpeg-core.js
 
 # Local reference clone; was once committed by accident as a gitlink, which broke Cloudflare builds.
 /spicy-lyrics/
+
+# Nested lockfiles in vendored dependencies (cargo never uses these for path deps).
+src-tauri/vendor/*/Cargo.lock
