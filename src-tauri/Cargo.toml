@@ -21,7 +21,9 @@ tauri-build = { version = "2.5.3", features = [] }
 [features]
 default = ["wry"]
 wry = ["tauri/wry", "tauri/x11", "tauri/common-controls-v6"]
-qt = ["dep:tauri-runtime-qt"]
+# custom-protocol: release builds must serve the embedded assets via tauri://
+# instead of falling back to devUrl (tauri-build sets dev = !custom-protocol).
+qt = ["dep:tauri-runtime-qt", "tauri/custom-protocol"]
 
 [dependencies]
 serde_json = "1.0"
@@ -39,6 +41,9 @@ tauri-plugin-log = "2.8.0"
 window-vibrancy = "0.7"
 tauri-plugin-os = "2"
 tauri-plugin-shell = "2"
+# Drives webkit2gtk directly for native decorations; stays a hard dependency so
+# its `decorum:*` capability permissions always validate. The plugin is only
+# initialized on the wry runtime (see lib.rs).
 tauri-plugin-decorum = "1"
 tauri-plugin-process = "2.3.1"
 # Portal backend so Linux shows the desktop's own file picker (zenity fallback).
@@ -49,11 +54,15 @@ tauri-plugin-persisted-scope = "2"
 resvg = { version = "0.49", default-features = false }
 
 # Experimental Qt/QtWebEngine runtime (TauriQt), enabled by the `qt` feature.
-# Pinned to a rev and built with default-features off: the runtime's default
-# `tauri-runtime-2-12` feature only adds `set_fullscreen_on_monitor`, which does
-# not exist in the `tauri-runtime` 2.9.2 that tauri 2.9.5 uses.
+# Vendored (not the git dep) and adapted to tauri-runtime 2.9.2: the upstream
+# runtime targets tauri-runtime 2.12, whose RuntimeHandle monitor methods return
+# plain Option/Vec and whose WindowBuilder/WebviewDispatch gained
+# no_redirection_bitmap / eval_script_with_callback. The vendored copy reverts
+# those to the 2.9.2 signatures.
 [target.'cfg(target_os = "linux")'.dependencies]
-tauri-runtime-qt = { git = "https://github.com/Alper-Celik/TauriQt", rev = "d2b4c877931790b52f81b917e4f0057c504489bd", default-features = false, optional = true }
+# devtools keeps the open/close/is_devtools_open impls (they'd be cfg'd out in
+# release otherwise); default-features off drops tauri-runtime-2-12.
+tauri-runtime-qt = { path = "vendor/tauri-runtime-qt", features = ["devtools"], default-features = false, optional = true }
 
 [target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
 tauri-plugin-updater = "2.9.0"

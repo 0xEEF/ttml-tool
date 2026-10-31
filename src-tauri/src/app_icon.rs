@@ -209,13 +209,24 @@ pub fn apply_app_icon(app: AppHandle<AppRuntime>, color: Option<String>) -> Resu
         Some(value) => Some(parse_hex(&value).ok_or("Expected a #rrggbb color")?),
         None => None,
     };
-    // Off the main thread: rendering and shortcut I/O shouldn't hold up the UI,
-    // and COM gets an apartment of its own.
-    std::thread::spawn(move || {
+    // Qt window ops must run on the GUI thread, so the Qt runtime applies the
+    // icon inline (this sync command runs on the main thread). Elsewhere the
+    // work runs off the main thread: rendering and shortcut I/O shouldn't hold
+    // up the UI, and COM gets an apartment of its own.
+    #[cfg(all(target_os = "linux", feature = "qt"))]
+    {
         if let Err(error) = apply(&app, color) {
             log::warn!("Couldn't apply the app icon: {error}");
         }
-    });
+    }
+    #[cfg(not(all(target_os = "linux", feature = "qt")))]
+    {
+        std::thread::spawn(move || {
+            if let Err(error) = apply(&app, color) {
+                log::warn!("Couldn't apply the app icon: {error}");
+            }
+        });
+    }
     Ok(())
 }
 

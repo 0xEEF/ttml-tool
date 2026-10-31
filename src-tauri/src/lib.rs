@@ -524,13 +524,24 @@ fn show_main_window_if_frontend_stalls(app: &tauri::App<AppRuntime>) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(3));
-        if window.is_visible().is_ok_and(|visible| !visible) {
-            log::warn!("The frontend didn't show the main window; showing it now");
-            let _ = window.show();
+    #[cfg(all(target_os = "linux", feature = "qt", not(feature = "wry")))]
+    {
+        // Qt window ops are only safe on the GUI thread, so the threaded show
+        // below would crash QtWebEngine. Show it now, on the main thread.
+        if let Err(error) = window.show() {
+            log::warn!("Couldn't show the main window: {error}");
         }
-    });
+    }
+    #[cfg(not(all(target_os = "linux", feature = "qt", not(feature = "wry"))))]
+    {
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(3));
+            if window.is_visible().is_ok_and(|visible| !visible) {
+                log::warn!("The frontend didn't show the main window; showing it now");
+                let _ = window.show();
+            }
+        });
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
