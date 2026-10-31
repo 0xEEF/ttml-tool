@@ -44,7 +44,7 @@ pub mod ffi {
         fn qt_scheme_install_handler(webview_id: u64);
         /// Completes a request that `qt_scheme_request` reported as pending
         /// (`handled == 2`).
-        fn qt_scheme_respond(request_id: u64, status: i32, headers: &str, body: &str);
+        fn qt_scheme_respond(request_id: u64, status: i32, headers: &str, body: &[u8]);
     }
 
     extern "Rust" {
@@ -77,7 +77,7 @@ pub mod ffi {
         handled: i32,
         status: i32,
         headers: String,
-        body: String,
+        body: Vec<u8>,
     }
 }
 
@@ -121,7 +121,7 @@ fn unhandled() -> ffi::QtSchemeResponse {
         handled: 0,
         status: 404,
         headers: String::new(),
-        body: String::new(),
+        body: Vec::new(),
     }
 }
 
@@ -210,7 +210,7 @@ pub fn qt_scheme_request(
                         }
                     };
                     if deferred {
-                        ffi::qt_scheme_respond(request_id, status, &headers, &body);
+                        ffi::qt_scheme_respond(request_id, status, &headers, body.as_slice());
                     }
                 },
             ),
@@ -235,6 +235,6 @@ pub fn qt_scheme_request(
         handled: 2,
         status: 0,
         headers: String::new(),
-        body: String::new(),
+        body: Vec::new(),
     }
 }

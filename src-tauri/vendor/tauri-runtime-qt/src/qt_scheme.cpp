@@ -339,7 +339,8 @@ private:
         applyResponse(job_, response.status,
                       QByteArray(response.headers.data(),
                                  static_cast<int>(response.headers.size())),
-                      QByteArray(response.body.data(), static_cast<int>(response.body.size())));
+                      QByteArray(reinterpret_cast<const char*>(response.body.data()),
+                                 static_cast<int>(response.body.size())));
     }
 
     QPointer<QWebEngineUrlRequestJob> job_;
@@ -423,11 +424,12 @@ void qt_scheme_install_handler(std::uint64_t webview_id) {
 }
 
 void qt_scheme_respond(std::uint64_t request_id, std::int32_t status,
-                       rust::Str headers, rust::Str body) {
+                       rust::Str headers, rust::Slice<const uint8_t> body) {
     // Copy out of the Rust-borrowed strings before marshalling (the borrowed
     // memory is not valid once this call returns).
     const QByteArray rawHeaders(headers.data(), static_cast<int>(headers.size()));
-    const QByteArray rawBody(body.data(), static_cast<int>(body.size()));
+    const QByteArray rawBody(reinterpret_cast<const char*>(body.data()),
+                             static_cast<int>(body.size()));
 
     // The responder may fire on any thread; always deliver on the GUI thread,
     // where the job and its reply device live.

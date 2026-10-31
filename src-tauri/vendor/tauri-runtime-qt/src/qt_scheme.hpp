@@ -34,4 +34,4 @@ void qt_scheme_install_handler(std::uint64_t webview_id);
 /// Safe to call from any thread: off-GUI-thread calls are marshalled to the GUI
 /// thread. Unknown/expired request ids are ignored.
 void qt_scheme_respond(std::uint64_t request_id, std::int32_t status,
-                       rust::Str headers, rust::Str body);
+                       rust::Str headers, rust::Slice<const uint8_t> body);

@@ -67,7 +67,7 @@ pub fn decode_request(
 /// uses: one `k: v` line per UTF-8 header (non-UTF-8 values are dropped), the
 /// CORS expose header injected when the block does not already contain that
 /// spelling, and the body as a lossy UTF-8 string.
-pub fn encode_response(response: http::Response<Cow<'static, [u8]>>) -> (i32, String, String) {
+pub fn encode_response(response: http::Response<Cow<'static, [u8]>>) -> (i32, String, Vec<u8>) {
     let status = response.status().as_u16() as i32;
     let mut headers = String::new();
     for (name, value) in response.headers() {
@@ -84,7 +84,9 @@ pub fn encode_response(response: http::Response<Cow<'static, [u8]>>) -> (i32, St
     (
         status,
         headers,
-        String::from_utf8_lossy(response.body()).into_owned(),
+        // The body is raw bytes (wasm, fonts, images), not text: a lossy UTF-8
+        // conversion here would corrupt every binary asset. Carry it as bytes.
+        response.body().to_vec(),
     )
 }
 
@@ -119,7 +121,7 @@ mod tests {
         ));
         assert_eq!(status, 200);
         assert_eq!(headers, format!("content-type: text/plain\nx-a: 1\n{CORS}"));
-        assert_eq!(body, "hello");
+        assert_eq!(body, b"hello");
     }
 
     #[test]
@@ -127,7 +129,7 @@ mod tests {
         let (status, headers, body) = encode_response(response(404, &[], b""));
         assert_eq!(status, 404);
         assert_eq!(headers, CORS);
-        assert_eq!(body, "");
+        assert_eq!(body, Vec::<u8>::new());
     }
 
     #[test]
@@ -171,9 +173,9 @@ mod tests {
     }
 
     #[test]
-    fn encode_response_renders_a_non_utf8_body_lossily() {
+    fn encode_response_preserves_a_non_utf8_body_as_raw_bytes() {
         let (_, _, body) = encode_response(response(200, &[], b"a\xffb"));
-        assert_eq!(body, "a\u{fffd}b");
+        assert_eq!(body, b"a\xffb");
     }
 
     #[test]
