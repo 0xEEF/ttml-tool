@@ -1,0 +1,94 @@
+# Flatpak build of the Qt backend variant of the Spicy Lyrics TTML Tool
+# (experimental). Used by build-desktop-qt-experimental.yaml.
+#
+# The WebKit build (io.github.spicylyrics.TTMLTool.yml) uses the GNOME runtime,
+# which ships WebKitGTK. The Qt backend links QtWebEngine, which no stock
+# runtime provides, so this variant runs on the KDE runtime (Qt6 base stack:
+# Core, Gui, Widgets, Qml, Quick, Network, Positioning, WebChannel, ...) and
+# layers only the QtWebEngine modules onto /app:
+#
+#   /app/lib/libQt6WebEngine{Core,Widgets}.so   the engine
+#   /app/libexec/QtWebEngineProcess             Chromium's helper process
+#   /app/resources/*.pak + icudtl.dat + locales Chromium's data files
+#
+# QtWebEngine cannot be relocated via qt.conf (that would break the runtime's
+# base Qt, which must keep its own paths), so it is pointed at /app with the
+# two environment variables QtWebEngine exposes for exactly this:
+# QTWEBENGINE_RESOURCES_DIR and QTWEBENGINE_PROCESS_PATH. The runtime adds
+# /app/lib to the library search path, so the WebEngine libs resolve without
+# an rpath. The runtime is built with the same Qt version (6.10.3) as these
+# modules, so the bundled WebEngine and the runtime base are ABI-matched.
+#
+# Local build, after `pnpm tauri build --no-bundle` against Qt 6.10.3 and
+# staging the WebEngine modules into packaging/flatpak/qt-webengine:
+#   flatpak-builder --user --install --force-clean build-dir \
+#     packaging/flatpak/io.github.spicylyrics.TTMLTool.qt.yml
+id: io.github.spicylyrics.TTMLTool
+runtime: org.kde.Platform
+runtime-version: "6.10"
+sdk: org.kde.Sdk
+command: amll-ttml-tool
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  - --socket=pulseaudio
+  # Point QtWebEngine at the modules bundled under /app.
+  - --env=QTWEBENGINE_RESOURCES_DIR=/app/resources
+  - --env=QTWEBENGINE_PROCESS_PATH=/app/libexec/QtWebEngineProcess
+  # Lyric search (LRCLIB, Genius) and web fonts.
+  - --share=network
+  # Linked projects read and write lyrics and audio where they already live,
+  # and folder projects scan the folder the user picked. File pickers still
+  # go through the desktop portal.
+  - --filesystem=home
+  # Discord Rich Presence, for native and Flatpak Discord.
+  - --filesystem=xdg-run/discord-ipc-0
+  - --filesystem=xdg-run/app/com.discordapp.Discord:create
+modules:
+  - name: amll-ttml-tool-qt
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 amll-ttml-tool /app/bin/amll-ttml-tool
+      - install -Dm755 lib/libQt6WebEngineCore.so* /app/lib/
+      - install -Dm755 lib/libQt6WebEngineWidgets.so* /app/lib/
+      - install -Dm755 libexec/QtWebEngineProcess /app/libexec/
+      - install -d /app/resources
+      - cp -a resources/. /app/resources/
+      # The Qt build links WebEngine, not WebKitGTK, so the ldd check verifies
+      # the engine resolves to the app copy (not the host, which the sandbox
+      # does not see).
+      - ldd /app/bin/amll-ttml-tool > ldd.txt
+      - grep -q 'libQt6WebEngineCore.so.6' ldd.txt
+      - "! grep 'not found' ldd.txt"
+      - install -Dm644 io.github.spicylyrics.TTMLTool.desktop /app/share/applications/io.github.spicylyrics.TTMLTool.desktop
+      - install -Dm644 io.github.spicylyrics.TTMLTool.metainfo.xml /app/share/metainfo/io.github.spicylyrics.TTMLTool.metainfo.xml
+      - install -Dm644 32x32.png /app/share/icons/hicolor/32x32/apps/io.github.spicylyrics.TTMLTool.png
+      - install -Dm644 64x64.png /app/share/icons/hicolor/64x64/apps/io.github.spicylyrics.TTMLTool.png
+      - install -Dm644 128x128.png /app/share/icons/hicolor/128x128/apps/io.github.spicylyrics.TTMLTool.png
+      - install -Dm644 128x128@2x.png /app/share/icons/hicolor/256x256/apps/io.github.spicylyrics.TTMLTool.png
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/io.github.spicylyrics.TTMLTool.png
+    sources:
+      - type: file
+        path: ../../src-tauri/target/release/amll-ttml-tool
+      - type: dir
+        path: qt-webengine/lib
+      - type: dir
+        path: qt-webengine/libexec
+      - type: dir
+        path: qt-webengine/resources
+      - type: file
+        path: io.github.spicylyrics.TTMLTool.desktop
+      - type: file
+        path: io.github.spicylyrics.TTMLTool.metainfo.xml
+      - type: file
+        path: ../../src-tauri/icons/32x32.png
+      - type: file
+        path: ../../src-tauri/icons/64x64.png
+      - type: file
+        path: ../../src-tauri/icons/128x128.png
+      - type: file
+        path: ../../src-tauri/icons/128x128@2x.png
+      - type: file
+        path: ../../src-tauri/icons/icon.png

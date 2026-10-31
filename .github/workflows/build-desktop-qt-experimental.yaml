@@ -1,0 +1,218 @@
+# Experimental Qt backend desktop builds (Linux).
+#
+# The default WebKitGTK build lives in build-desktop.yaml and is untouched.
+# This workflow produces the same Linux artifact types (deb, rpm, AppImage and
+# Flatpak) from the opt-in `qt` cargo feature, which swaps wry/WebKitGTK for
+# the vendored TauriQt runtime (QtWebEngine/Chromium). Artifacts keep the same
+# base name as the WebKit build, with "-Qt_experimental" inserted before the
+# file extension, so both sets can live side by side in a release.
+#
+# The Qt backend is experimental: on some machines QtWebEngine's embedded
+# Chromium software-renders (no GPU backend), so these artifacts are not a
+# drop-in replacement. They are published for users who want to try them.
+name: Build desktop app (Qt experimental, Linux)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: qt-experimental-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: write
+
+jobs:
+  # Builds the Qt backend binary and packages it as deb, rpm and AppImage via
+  # tauri's bundler, then renames each artifact with the "-Qt_experimental"
+  # suffix and uploads it. Built against the distro's Qt6 (from apt) so the
+  # packaged binaries declare system deps that exist on most distros.
+  build-qt-experimental:
+    name: Build Qt experimental (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: qt-apt-x86_64
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Install Qt6 and Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libappindicator3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            patchelf \
+            qt6-base-dev \
+            qt6-webengine-dev
+      - run: pnpm install --frozen-lockfile
+      # The qt feature disables the default (wry) feature, which selects the
+      # Qt runtime. tauri build has no --no-default-features flag, so pass it
+      # through to cargo via the trailing runner args. createUpdaterArtifacts
+      # stays off: publishing signed updater payloads for an experimental
+      # binary on the stable update channel would be wrong.
+      - name: Build release (Qt backend)
+        shell: bash
+        run: |
+          pnpm tauri build \
+            --features qt \
+            -c '{"bundle":{"createUpdaterArtifacts":false}}' \
+            -- --no-default-features
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      # The WebKit AppImage patch (GStreamer/WebKitGTK host interop) does not
+      # apply to QtWebEngine and would strip libs it needs, so it is skipped
+      # here. The Qt backend embeds its own Chromium media stack.
+      - name: Rename Qt experimental bundles
+        shell: bash
+        run: |
+          cd src-tauri/target/release/bundle
+          find . -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) | while read -r f; do
+            dir="$(dirname "$f")"
+            base="$(basename "$f")"
+            renamed="${base%.*}-Qt_experimental.${base##*.}"
+            mv "$f" "$dir/$renamed"
+          done
+          find . -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \) -print
+      - name: Publish Qt experimental bundles to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          bundle_dir=src-tauri/target/release/bundle
+          for f in "$bundle_dir"/deb/*-Qt_experimental.deb \
+                    "$bundle_dir"/rpm/*-Qt_experimental.rpm \
+                    "$bundle_dir"/appimage/*-Qt_experimental.AppImage; do
+            [ -e "$f" ] || continue
+            name="$(basename "$f")"
+            gh release delete-asset "${{ github.ref_name }}" "$name" --yes || true
+            gh release upload "${{ github.ref_name }}" "$f" --clobber
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Spicy Lyrics TTML Tool Qt experimental linux-x86_64
+          path: |
+            src-tauri/target/**/release/bundle/**/*
+            src-tauri/target/release/amll-ttml-tool
+
+  # The Flatpak for the Qt backend needs a version-matched Qt: the KDE runtime
+  # ships Qt 6.10, so this job rebuilds the Qt backend binary against Qt 6.10.3
+  # (not the distro's apt Qt, which is 6.4) and stages the QtWebEngine modules
+  # that no stock runtime provides. The flathub container cannot compile the
+  # Rust app, so the binary and staging are built here and handed to the
+  # packaging job via an artifact.
+  build-flatpak-qt-experimental:
+    name: Build Qt experimental Flatpak input (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: qt-aqt610-x86_64
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libasound2-dev \
+            libappindicator3-dev \
+            libwebkit2gtk-4.1-dev \
+            librsvg2-dev \
+            python3-pip
+      - name: Install aqtinstall
+        run: |
+          python3 -m pip install --quiet --break-system-packages aqtinstall \
+            || python3 -m pip install --quiet aqtinstall
+      - name: Fetch Qt 6.10.3 (base + webengine)
+        run: python3 -m aqt install-qt linux desktop 6.10.3 linux_gcc_64 -m qtwebengine qtwebchannel
+      - run: pnpm install --frozen-lockfile
+      - name: Build Qt backend binary against Qt 6.10.3
+        shell: bash
+        run: |
+          export QMAKE="$HOME/Qt/6.10.3/gcc_64/bin/qmake"
+          export RUSTFLAGS="-L native=$HOME/Qt/6.10.3/gcc_64/lib"
+          pnpm tauri build \
+            --no-bundle \
+            --features qt \
+            -c '{"bundle":{"createUpdaterArtifacts":false}}' \
+            -- --no-default-features
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - name: Stage QtWebEngine modules for the Flatpak
+        shell: bash
+        run: |
+          staging=packaging/flatpak/qt-webengine
+          rm -rf "$staging"
+          mkdir -p "$staging"/lib "$staging"/libexec "$staging"/resources
+          qtlib="$HOME/Qt/6.10.3/gcc_64/lib"
+          cp -L "$qtlib"/libQt6WebEngineCore.so* "$staging"/lib/
+          cp -L "$qtlib"/libQt6WebEngineWidgets.so* "$staging"/lib/
+          cp "$HOME/Qt/6.10.3/gcc_64/libexec/QtWebEngineProcess" "$staging"/libexec/
+          # Whole resources dir (paks, icudtl.dat, v8 snapshot, locales/).
+          cp -a "$HOME/Qt/6.10.3/gcc_64/resources/." "$staging"/resources/
+          ls -R "$staging" | head -30
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Qt experimental flatpak input
+          path: |
+            src-tauri/target/release/amll-ttml-tool
+            packaging/flatpak/qt-webengine
+
+  # Wraps the Qt backend binary and the staged WebEngine modules in a Flatpak
+  # on the KDE runtime (Qt6 base stack), using the flathub toolchain.
+  package-flatpak-qt-experimental:
+    name: Package Qt experimental Flatpak (x86_64)
+    needs: build-flatpak-qt-experimental
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: Qt experimental flatpak input
+          path: .
+      - name: Ensure staged modules and binary are in place
+        shell: bash
+        run: |
+          test -x src-tauri/target/release/amll-ttml-tool
+          ls packaging/flatpak/qt-webengine/lib/libQt6WebEngineCore.so.6
+          ls packaging/flatpak/qt-webengine/libexec/QtWebEngineProcess
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/io.github.spicylyrics.TTMLTool.qt.yml
+          bundle: Spicy-Lyrics-TTML-Tool_x86_64-Qt_experimental.flatpak
+          artifact-name: Spicy Lyrics TTML Tool Qt experimental flatpak-x86_64
+          cache-key: flatpak-builder-qt-${{ github.sha }}
+      - name: Publish Qt experimental Flatpak to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            *.flatpak --repo "$GITHUB_REPOSITORY" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
