@@ -1,0 +1,4 @@
+[submodule "src-tauri/vendor"]
+	path = src-tauri/vendor
+	url = https://github.com/0xEEF/TauriQt.git
+	branch = compat/tauri-runtime-2.9
