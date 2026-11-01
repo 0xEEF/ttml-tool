@@ -149,9 +149,12 @@ jobs:
   # that no stock runtime provides. The flathub container cannot compile the
   # Rust app, so the binary and staging are built here and handed to the
   # packaging job via an artifact.
+  # ubuntu-latest builds against glibc 2.43, but the KDE 6.10 runtime (freedesktop
+  # 25.08, Debian 13) ships glibc 2.41; a binary needing 2.43 won't run in the
+  # sandbox. Build on 22.04 (glibc 2.35) so the binary is older than the runtime.
   build-flatpak-qt-experimental:
     name: Build Qt experimental Flatpak input (x86_64)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v6
         with:
