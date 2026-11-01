@@ -34,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
@@ -120,6 +122,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
@@ -192,6 +196,8 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
       - uses: actions/download-artifact@v7
         with:
           name: Qt experimental flatpak input
