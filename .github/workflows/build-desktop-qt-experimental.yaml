@@ -240,11 +240,24 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           name: Qt experimental flatpak input
-          path: .
-      - name: Ensure staged modules and binary are in place
+          path: ./qt-input
+      # download-artifact does not restore the executable bit on Linux and can
+      # merge awkwardly into the checkout's packaging/flatpak tree, so copy the
+      # artifact contents to the exact paths the manifest sources reference,
+      # with explicit permissions.
+      - name: Place staged modules and binary where the manifest expects
         shell: bash
         run: |
+          set -e
+          bin="$(find qt-input -type f -name amll-ttml-tool | head -1)"
+          test -n "$bin"
+          mkdir -p src-tauri/target/release
+          install -m755 "$bin" src-tauri/target/release/amll-ttml-tool
           test -x src-tauri/target/release/amll-ttml-tool
+          webengine="$(find qt-input -type d -name qt-webengine | head -1)"
+          test -n "$webengine"
+          rm -rf packaging/flatpak/qt-webengine
+          cp -a "$webengine" packaging/flatpak/
           ls packaging/flatpak/qt-webengine/lib/libQt6WebEngineCore.so.6
           ls packaging/flatpak/qt-webengine/libexec/QtWebEngineProcess
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
