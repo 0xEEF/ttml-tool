@@ -60,6 +60,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             libfuse2 \
+            libxkbcommon-x11-0 \
             python3-pip
       - name: Install aqtinstall
         run: |
