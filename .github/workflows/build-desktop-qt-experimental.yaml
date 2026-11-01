@@ -73,61 +73,61 @@ jobs:
       # through to cargo via the trailing runner args. createUpdaterArtifacts
       # stays off: publishing signed updater payloads for an experimental
       # binary on the stable update channel would be wrong.
-      - name: Build release (Qt backend)
+      - name: Build release (Qt backend, deb + rpm)
         shell: bash
         run: |
           qtdir="$HOME/Qt/6.10.3/gcc_64"
           export QMAKE="$qtdir/bin/qmake"
           export RUSTFLAGS="-L native=$qtdir/lib"
           export LD_LIBRARY_PATH="$qtdir/lib:$LD_LIBRARY_PATH"
-          # tauri runs linuxdeploy (an AppImage) internally during the bundle.
-          # On the GitHub runner /dev/fuse is not usable, so force it to extract
-          # and run instead of mounting; without this the AppImage step fails
-          # with 'failed to run linuxdeploy'.
-          export APPIMAGE_EXTRACT_AND_RUN=1
+          # The AppImage is built separately below: tauri's internal linuxdeploy
+          # step is opaque and kept failing to resolve the aqt Qt libs, so let
+          # tauri produce only the deb and rpm here.
           pnpm tauri build \
             --features qt \
-            -c '{"bundle":{"createUpdaterArtifacts":false}}' \
+            -c '{"bundle":{"createUpdaterArtifacts":false,"targets":["deb","rpm"]}}' \
             -- --no-default-features
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      # The tauri AppImage is built with linuxdeploy's default gtk/gstreamer
-      # plugins, which bundle the Qt shared libraries (the binary links them)
-      # but not QtWebEngine's runtime support files (QtWebEngineProcess, the
-      # .pak resources, icudtl.dat) nor the Qt platform/plugin modules. Re-run
-      # linuxdeploy on tauri's AppDir with the qt plugin to add those, keeping
-      # gtk (still a hard link dependency of the Qt-mode binary). Best-effort:
-      # if the qt plugin fails we keep tauri's AppImage rather than drop the
-      # deb/rpm publish.
-      - name: Add QtWebEngine runtime to the AppImage (linuxdeploy-plugin-qt)
+      # Build the AppImage manually with linuxdeploy + the qt plugin. The binary
+      # links Qt libs from the aqt install ($HOME/Qt), which linuxdeploy's ldd
+      # pass needs on LD_LIBRARY_PATH; the qt plugin bundles QtWebEngine's
+      # runtime support (QtWebEngineProcess, .pak resources, icudtl.dat) and the
+      # Qt platform/plugin modules alongside gtk (still a hard link dependency).
+      # Building it by hand keeps the real linuxdeploy errors visible, unlike
+      # tauri's internal AppImage step.
+      - name: Build AppImage manually (linuxdeploy + qt plugin)
         shell: bash
         run: |
-          set -u
+          set -euxo pipefail
           export APPIMAGE_EXTRACT_AND_RUN=1
-          export QMAKE="${QMAKE:-$HOME/Qt/6.10.3/gcc_64/bin/qmake}"
+          export QMAKE="$HOME/Qt/6.10.3/gcc_64/bin/qmake"
           export LD_LIBRARY_PATH="$HOME/Qt/6.10.3/gcc_64/lib:$LD_LIBRARY_PATH"
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O /tmp/linuxdeploy
           wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage -O /tmp/linuxdeploy-plugin-qt
           wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage -O /tmp/linuxdeploy-plugin-appimage
           chmod +x /tmp/linuxdeploy /tmp/linuxdeploy-plugin-qt /tmp/linuxdeploy-plugin-appimage
           export PATH="/tmp:$PATH"
-          cd src-tauri/target/release/bundle/appimage
-          appdir="$(find . -maxdepth 1 -type d -name '*.AppDir' | head -1)"
-          orig="$(find . -maxdepth 1 -type f -name '*.AppImage' | head -1)"
-          if [ -z "$appdir" ] || [ -z "$orig" ]; then
-            echo "No AppDir/AppImage found; leaving the tauri AppImage as-is"
-            exit 0
-          fi
-          /tmp/linuxdeploy --appdir "$appdir" --plugin qt --output appimage
-          rc=$?
-          built="$(find . -maxdepth 1 -type f -name '*.AppImage' ! -path "$orig" | head -1)"
-          if [ "$rc" -eq 0 ] && [ -n "$built" ]; then
-            mv "$built" "$orig"
-            echo "QtWebEngine runtime added; replaced tauri AppImage"
-          else
-            echo "linuxdeploy-plugin-qt step failed (rc=$rc); keeping tauri's AppImage"
-          fi
+          repo="$PWD"
+          bin="$repo/src-tauri/target/release/amll-ttml-tool"
+          appdir="$repo/src-tauri/target/release/bundle/appimage/amll-ttml-tool.AppDir"
+          rm -rf "$appdir"
+          mkdir -p "$appdir"/usr/bin "$appdir"/usr/share/applications
+          cp "$bin" "$appdir"/usr/bin/amll-ttml-tool
+          cp "$repo/packaging/archlinux/amll-ttml-tool.desktop" "$appdir"/amll-ttml-tool.desktop
+          cp "$repo/packaging/archlinux/amll-ttml-tool.desktop" "$appdir"/usr/share/applications/
+          # Run from the bundle/appimage dir so linuxdeploy's --output appimage
+          # lands the AppImage there (it writes to the CWD).
+          cd "$repo/src-tauri/target/release/bundle/appimage"
+          /tmp/linuxdeploy \
+            --appdir "$appdir" \
+            --executable "$appdir/usr/bin/amll-ttml-tool" \
+            --desktop-file "$appdir/amll-ttml-tool.desktop" \
+            --icon-file "$repo/src-tauri/icons/icon.png" \
+            --plugin qt \
+            --output appimage
+          ls -la ./*.AppImage
       - name: Rename Qt experimental bundles
         shell: bash
         run: |
