@@ -59,6 +59,7 @@ jobs:
             libwebkit2gtk-4.1-dev \
             librsvg2-dev \
             patchelf \
+            libfuse2 \
             python3-pip
       - name: Install aqtinstall
         run: |
