@@ -75,9 +75,41 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      # The WebKit AppImage patch (GStreamer/WebKitGTK host interop) does not
-      # apply to QtWebEngine and would strip libs it needs, so it is skipped
-      # here. The Qt backend embeds its own Chromium media stack.
+      # The tauri AppImage is built with linuxdeploy's default gtk/gstreamer
+      # plugins, which bundle the Qt shared libraries (the binary links them)
+      # but not QtWebEngine's runtime support files (QtWebEngineProcess, the
+      # .pak resources, icudtl.dat) nor the Qt platform/plugin modules. Re-run
+      # linuxdeploy on tauri's AppDir with the qt plugin to add those, keeping
+      # gtk (still a hard link dependency of the Qt-mode binary). Best-effort:
+      # if the qt plugin fails we keep tauri's AppImage rather than drop the
+      # deb/rpm publish.
+      - name: Add QtWebEngine runtime to the AppImage (linuxdeploy-plugin-qt)
+        shell: bash
+        run: |
+          set -u
+          export APPIMAGE_EXTRACT_AND_RUN=1
+          export QMAKE="${QMAKE:-$(command -v qmake6 || echo /usr/bin/qmake6)}"
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O /tmp/linuxdeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage -O /tmp/linuxdeploy-plugin-qt
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage -O /tmp/linuxdeploy-plugin-appimage
+          chmod +x /tmp/linuxdeploy /tmp/linuxdeploy-plugin-qt /tmp/linuxdeploy-plugin-appimage
+          export PATH="/tmp:$PATH"
+          cd src-tauri/target/release/bundle/appimage
+          appdir="$(find . -maxdepth 1 -type d -name '*.AppDir' | head -1)"
+          orig="$(find . -maxdepth 1 -type f -name '*.AppImage' | head -1)"
+          if [ -z "$appdir" ] || [ -z "$orig" ]; then
+            echo "No AppDir/AppImage found; leaving the tauri AppImage as-is"
+            exit 0
+          fi
+          /tmp/linuxdeploy --appdir "$appdir" --plugin qt --output appimage
+          rc=$?
+          built="$(find . -maxdepth 1 -type f -name '*.AppImage' ! -path "$orig" | head -1)"
+          if [ "$rc" -eq 0 ] && [ -n "$built" ]; then
+            mv "$built" "$orig"
+            echo "QtWebEngine runtime added; replaced tauri AppImage"
+          else
+            echo "linuxdeploy-plugin-qt step failed (rc=$rc); keeping tauri's AppImage"
+          fi
       - name: Rename Qt experimental bundles
         shell: bash
         run: |
