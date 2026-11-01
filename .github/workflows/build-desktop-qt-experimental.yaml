@@ -182,26 +182,18 @@ jobs:
           python3 -m pip install --quiet --break-system-packages aqtinstall \
             || python3 -m pip install --quiet aqtinstall
       - name: Fetch Qt 6.10.3 (base + webengine)
-        run: python3 -m aqt install-qt linux desktop 6.10.3 linux_gcc_64 -m qtwebengine qtwebchannel
+        run: python3 -m aqt install-qt linux desktop 6.10.3 linux_gcc_64 -m qtwebengine qtwebchannel --outputdir "$HOME/Qt"
       - run: pnpm install --frozen-lockfile
       - name: Build Qt backend binary against Qt 6.10.3
         shell: bash
         run: |
           qtdir="$HOME/Qt/6.10.3/gcc_64"
-          # Diagnose the exact probe qt_build_utils runs (`qmake -query` with a
-          # cleared environment) so a failure tells us why on this runner.
-          echo "=== qmake probe with cleared env (as qt_build_utils does) ==="
-          env -i "$qtdir/bin/qmake" -query QT_VERSION || echo "PROBE FAILED (rc=$?)"
-          # qt_build_utils probes Qt by running qmake with env_clear(), so any
-          # LD_LIBRARY_PATH exported here never reaches it. Wrap qmake to set
-          # the Qt lib dir itself; the absolute shebang survives the empty env.
-          cat > /tmp/qt-qmake-wrapper.sh <<WRAPPER
-          #!/bin/bash
-          export LD_LIBRARY_PATH="$qtdir/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
-          exec "$qtdir/bin/qmake" "\$@"
-          WRAPPER
-          chmod +x /tmp/qt-qmake-wrapper.sh
-          export QMAKE=/tmp/qt-qmake-wrapper.sh
+          # qt_build_utils probes Qt by running `qmake -query` with a cleared
+          # environment, so LD_LIBRARY_PATH exported here never reaches qmake.
+          # The aqt qmake finds its libs via its $ORIGIN/../lib RUNPATH, so it
+          # works with an empty env; point QMAKE at it directly and keep
+          # RUSTFLAGS for the final link.
+          export QMAKE="$qtdir/bin/qmake"
           export RUSTFLAGS="-L native=$qtdir/lib"
           export LD_LIBRARY_PATH="$qtdir/lib:$LD_LIBRARY_PATH"
           pnpm tauri build \
