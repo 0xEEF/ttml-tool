@@ -72,12 +72,13 @@ modules:
     sources:
       - type: file
         path: ../../src-tauri/target/release/amll-ttml-tool
+      # Point at the parent so flatpak-builder copies the lib/, libexec/ and
+      # resources/ subdirectories into the build root as-is (a type:dir source
+      # copies its CONTENTS into the build root, not a named subdir, so three
+      # separate dir sources would flatten them and the build-commands above
+      # would not find lib/... and libexec/...).
       - type: dir
-        path: qt-webengine/lib
-      - type: dir
-        path: qt-webengine/libexec
-      - type: dir
-        path: qt-webengine/resources
+        path: qt-webengine
       - type: file
         path: io.github.spicylyrics.TTMLTool.desktop
       - type: file
