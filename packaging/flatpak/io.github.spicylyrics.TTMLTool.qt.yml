@@ -51,10 +51,10 @@ modules:
     buildsystem: simple
     build-commands:
       - install -Dm755 amll-ttml-tool /app/bin/amll-ttml-tool
-      - install -Dm755 lib/libQt6WebEngineCore.so* /app/lib/
-      - install -Dm755 lib/libQt6WebEngineWidgets.so* /app/lib/
-      - install -Dm755 libexec/QtWebEngineProcess /app/libexec/
-      - install -d /app/resources
+      - install -d /app/lib /app/libexec /app/resources
+      - install -m755 lib/libQt6WebEngineCore.so* /app/lib/
+      - install -m755 lib/libQt6WebEngineWidgets.so* /app/lib/
+      - install -m755 libexec/QtWebEngineProcess /app/libexec/
       - cp -a resources/. /app/resources/
       # The Qt build links WebEngine, not WebKitGTK, so the ldd check verifies
       # the engine resolves to the app copy (not the host, which the sandbox
