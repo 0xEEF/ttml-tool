@@ -187,9 +187,23 @@ jobs:
       - name: Build Qt backend binary against Qt 6.10.3
         shell: bash
         run: |
-          export QMAKE="$HOME/Qt/6.10.3/gcc_64/bin/qmake"
-          export RUSTFLAGS="-L native=$HOME/Qt/6.10.3/gcc_64/lib"
-          export LD_LIBRARY_PATH="$HOME/Qt/6.10.3/gcc_64/lib:$LD_LIBRARY_PATH"
+          qtdir="$HOME/Qt/6.10.3/gcc_64"
+          # Diagnose the exact probe qt_build_utils runs (`qmake -query` with a
+          # cleared environment) so a failure tells us why on this runner.
+          echo "=== qmake probe with cleared env (as qt_build_utils does) ==="
+          env -i "$qtdir/bin/qmake" -query QT_VERSION || echo "PROBE FAILED (rc=$?)"
+          # qt_build_utils probes Qt by running qmake with env_clear(), so any
+          # LD_LIBRARY_PATH exported here never reaches it. Wrap qmake to set
+          # the Qt lib dir itself; the absolute shebang survives the empty env.
+          cat > /tmp/qt-qmake-wrapper.sh <<WRAPPER
+          #!/bin/bash
+          export LD_LIBRARY_PATH="$qtdir/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+          exec "$qtdir/bin/qmake" "\$@"
+          WRAPPER
+          chmod +x /tmp/qt-qmake-wrapper.sh
+          export QMAKE=/tmp/qt-qmake-wrapper.sh
+          export RUSTFLAGS="-L native=$qtdir/lib"
+          export LD_LIBRARY_PATH="$qtdir/lib:$LD_LIBRARY_PATH"
           pnpm tauri build \
             --no-bundle \
             --features qt \
