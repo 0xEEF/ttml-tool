@@ -79,7 +79,7 @@ jobs:
           python3 -m pip install --quiet --break-system-packages aqtinstall \
             || python3 -m pip install --quiet aqtinstall
       - name: Fetch Qt 6.10.3 (base + webengine)
-        run: python3 -m aqt install-qt linux desktop 6.10.3 linux_gcc_64 -m qtwebengine qtwebchannel qtpositioning --outputdir "$HOME/Qt"
+        run: python3 -m aqt install-qt linux desktop 6.10.3 linux_gcc_64 -m qtwebengine qtwebchannel qtpositioning qtserialport --outputdir "$HOME/Qt"
       - run: pnpm install --frozen-lockfile
       # The qt feature disables the default (wry) feature, which selects the
       # Qt runtime. tauri build has no --no-default-features flag, so pass it
