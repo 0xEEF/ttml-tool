@@ -127,9 +127,11 @@ jobs:
           appdir="$repo/src-tauri/target/release/bundle/appimage/amll-ttml-tool.AppDir"
           rm -rf "$appdir"
           mkdir -p "$appdir"/usr/bin "$appdir"/usr/share/applications
+          mkdir -p "$appdir"/usr/share/icons/hicolor/512x512/apps
           cp "$bin" "$appdir"/usr/bin/amll-ttml-tool
           cp "$repo/packaging/archlinux/amll-ttml-tool.desktop" "$appdir"/amll-ttml-tool.desktop
           cp "$repo/packaging/archlinux/amll-ttml-tool.desktop" "$appdir"/usr/share/applications/
+          cp "$repo/src-tauri/icons/icon.png" "$appdir"/usr/share/icons/hicolor/512x512/apps/amll-ttml-tool.png
           # Run from the bundle/appimage dir so linuxdeploy's --output appimage
           # lands the AppImage there (it writes to the CWD).
           cd "$repo/src-tauri/target/release/bundle/appimage"
@@ -137,7 +139,6 @@ jobs:
             --appdir "$appdir" \
             --executable "$appdir/usr/bin/amll-ttml-tool" \
             --desktop-file "$appdir/amll-ttml-tool.desktop" \
-            --icon-file "$repo/src-tauri/icons/icon.png" \
             --plugin qt \
             --output appimage
           ls -la ./*.AppImage
